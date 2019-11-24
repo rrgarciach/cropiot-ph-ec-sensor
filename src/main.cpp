@@ -15,6 +15,15 @@
 // ADS1115 GND    -> Nodemcu GND
 // ADS1115 VDD    -> Nodemcu VU
 
+// apply template
+// apply assets
+// implement MQTT UI setup and API
+// Implement pH calibration UI setup and API
+// Implement EC reading
+// Implement EC calibration UI setup and API
+// Implement pumps control
+// Implement pumps calibration UI setup and API
+
 const char* mqtt_server = "demo.thingsboard.io";
 #define ACCESS_TOKEN      "KjrfColRMYhfI9PYQTSZ"
 
@@ -31,6 +40,7 @@ int phSensorADCPin = 0;
 
 float intercept = 20.6438; //change this value to calibrate
 float slope = -0.2190; //change this value to calibrate
+int numbOfSamples = 100;
 int sensorValue = 0;
 unsigned long int avgValue;
 float b;
@@ -61,15 +71,15 @@ void setup() {
 }
 
 void loop() {
-  for(int i=0;i<10;i++)
+  for(int i = 0; i < 10; i++)
   {
     // buf[i]=analogRead(phSensorPin);
     buf[i] = ads.readADC_SingleEnded(phSensorADCPin);
     delay(30);
   }
-  for(int i=0;i<9;i++)
+  for(int i = 0; i < 9; i++)
   {
-    for(int j=i+1;j<10;j++)
+    for(int j = i + 1; j < 10; j++)
     {
       if(buf[i]>buf[j])
       {
@@ -81,7 +91,7 @@ void loop() {
   }
   avgValue=0;
 
-  for(int i=2;i<8;i++)
+  for(int i = 2; i < 8; i++)
     avgValue+=buf[i];
 
   float pHVol=(float)avgValue*5.0/1024/6;
