@@ -1,9 +1,10 @@
 #include "Arduino.h"
-#include "EEPROM.h"
+#include "CropIoTDeviceSettings.h"
+#include "../include/device_endpoints.h"
 #include "Wire.h"
-#include "ESP8266WiFi.h"
-#include "PubSubClient.h"
 #include "Adafruit_ADS1015.h"
+#include "DFRobot_EC.h"
+// #include "DFRobot_PH.h"
 
 // https://github.com/knolleary/pubsubclient/blob/master/examples/mqtt_esp8266/mqtt_esp8266.ino
 
@@ -15,160 +16,216 @@
 // ADS1115 GND    -> Nodemcu GND
 // ADS1115 VDD    -> Nodemcu VU
 
-// apply template
 // apply assets
-// implement MQTT UI setup and API
+// implement MQTT UI
 // Implement pH calibration UI setup and API
 // Implement EC reading
 // Implement EC calibration UI setup and API
 // Implement pumps control
 // Implement pumps calibration UI setup and API
 
-const char* mqtt_server = "demo.thingsboard.io";
-#define ACCESS_TOKEN      "KjrfColRMYhfI9PYQTSZ"
-
-#define MQTT_SERVER_ADDR 550
-#define ACCESS_TOKEN_ADDR 500
+#define PH_PIN 0
+#define EC_PIN 1
+// #define SLOPE_MEM_ADDR          490 // size of 2
+// #define INTERCEPT_MEM_ADDR      495 // size of 5
+#define PH4_READING_MEM_ADDR      490 // size of 2
+#define PH7_READING_MEM_ADDR      495 // size of 5
 
 WiFiClient wlanClient1;
-
-PubSubClient client(wlanClient1);
+PubSubClient mqttClient1(wlanClient1);
 
 Adafruit_ADS1115 ads;
+// DFRobot_PH ph;
+DFRobot_EC ec;
 
-int phSensorADCPin = 0;
+float voltagePH,voltageEC,phValue,ecValue,temperature = 25;
 
-float intercept = 20.6438; //change this value to calibrate
-float slope = -0.2190; //change this value to calibrate
-int numbOfSamples = 100;
+// float slope = -0.2212389380530973;//-0.2190; //change this value to calibrate
+// float intercept = 21.19026548672566;//20.6438; //change this value to calibrate
+float slope = 0;//-0.2190; //change this value to calibrate
+float intercept = 0;//20.6438; //change this value to calibrate
 int sensorValue = 0;
 unsigned long int avgValue;
 float b;
-int buf[10], temp;
+int buf[100], temp;
 
-void connectWiFi(String wlanSsid, String wlanPass);
-void connectMQTT(String deviceId, String accessToken);
-float calcSlope(float ph4Reading, float ph7Reading);
-float calcIntercept(float slope, float ph7Reading, float phReference);
-void writeMem(char add,String data);
-String readMem(char add);
+float readPhSensor();
+float readECSensor();
+// bool readSerial(char result[]);
+float calcSlope();
+float calcIntercept();
+void loadDeviceEndpoints();
 
 void setup() {
-  Serial.println("Starting...");
   Serial.begin(115200);
-  EEPROM.begin(512);
-  connectWiFi("RiagaTechRRG", "RUyCHAVEz206");
-  // writeMem(MQTT_SERVER_ADDR, "demo.thingsboard.io");
-  // writeMem(ACCESS_TOKEN_ADDR, "KjrfColRMYhfI9PYQTSZ");
-  String mqtt_server = readMem(MQTT_SERVER_ADDR);
-  // String port = readMem(ACCESS_TOKEN_ADDR);
-  Serial.println(mqtt_server);
-  // Serial.println(port);
-  client.setServer(mqtt_server.c_str(), 1883);
-  connectMQTT("pH Sensor", ACCESS_TOKEN);
+  Serial.println("Starting...");
+  connectWiFi();
+  wlanClient1 = generateWiFiClient();
+  connectMQTT(mqttClient1);
+  // ph.begin();
+  ec.begin();
   ads.begin();
+
+  slope = calcSlope();
+  intercept = calcIntercept();
   Serial.println("Ready");
 }
 
 void loop() {
+  connectMQTT(mqttClient1);
+  readPhSensor();
+  delay(10*1000);
+  // char cmd[10];
+  // static unsigned long timepoint = millis();
+
+  // if(millis()-timepoint>1000U){                            //time interval: 1s
+    // readPhSensor();
+    // delay(10*1000);
+    // readECSensor();
+  // }
+  //
+  // if(readSerial(cmd)){
+  //   strupr(cmd);
+  //   if(strstr(cmd,"PH")){
+  //     ph.calibration(voltagePH,temperature,cmd);       //PH calibration process by Serail CMD
+  //   }
+  //   if(strstr(cmd,"EC")){
+  //     ec.calibration(voltageEC,temperature,cmd);       //EC calibration process by Serail CMD
+  //   }
+  // }
+  reconnectWiFi();
+  reconnectMQTT(mqttClient1);
+}
+
+float readPhSensor() {
   for(int i = 0; i < 10; i++)
   {
-    // buf[i]=analogRead(phSensorPin);
-    buf[i] = ads.readADC_SingleEnded(phSensorADCPin);
+    buf[i] = ads.readADC_SingleEnded(PH_PIN);
     delay(30);
   }
   for(int i = 0; i < 9; i++)
   {
     for(int j = i + 1; j < 10; j++)
     {
-      if(buf[i]>buf[j])
+      if(buf[i] > buf[j])
       {
-        temp=buf[i];
-        buf[i]=buf[j];
-        buf[j]=temp;
+        temp = buf[i];
+        buf[i] = buf[j];
+        buf[j] = temp;
       }
     }
   }
-  avgValue=0;
+  avgValue = 0;
 
   for(int i = 2; i < 8; i++)
-    avgValue+=buf[i];
+    avgValue += buf[i];
 
-  float pHVol=(float)avgValue*5.0/1024/6;
+  float pHVol = (float)avgValue * 5.0 / 1024 / 6;
   float phValue = slope * pHVol + intercept;
-  Serial.print("sensor = ");
+  Serial.print("avgValue raw value = ");
+  Serial.print(avgValue);
+  Serial.print("\t pHVol value = ");
+  Serial.print(pHVol);
+  Serial.print("\t pH sensor = ");
   Serial.println(phValue);
 
+  // //temperature = readTemperature();                   // read your temperature sensor to execute temperature compensation
+  // voltagePH = ads.readADC_SingleEnded(PH_PIN)/1024.0*5000;          // read the ph voltage
+  // phValue    = ph.readPH(voltagePH,temperature);       // convert voltage to pH with temperature compensation
+  // Serial.print("raw:");
+  // Serial.print(ads.readADC_SingleEnded(PH_PIN));
+  // Serial.print("\t");
+  // Serial.print("pH:");
+  // Serial.print(phValue,2);
+  // voltageEC = analogRead(EC_PIN)/1024.0*5000;
+
   String message = "{\"pH\": " + String(phValue) + "}";
-  client.publish("v1/devices/me/telemetry", message.c_str());
-
-  delay(10*1000);
+  mqttClient1.publish("v1/devices/me/telemetry", message.c_str());
+  return avgValue;
 }
 
-void connectWiFi(String wlanSsid, String wlanPass) {
-  // WiFi.setAutoConnect(true);
-  // WiFi.setAutoReconnect(true);
-  // WiFi.begin(wlanSsid, wlanPass);
-  while (!WiFi.isConnected()) {
-    delay(1000);
-    Serial.println("Connecting to WiFi..");
-  }
-  Serial.println("Connected!");
-  Serial.print("local IP address: ");
-  Serial.println(WiFi.localIP());
-  // Serial.print("AP IP address: ");
-  // Serial.println(WiFi.softAPIP());
+float readECSensor() {
+  voltageEC = ads.readADC_SingleEnded(EC_PIN)/1024.0*5000;   // read the voltage
+  //temperature = readTemperature();          // read your temperature sensor to execute temperature compensation
+  ecValue    = ec.readEC(voltageEC,temperature)*10;  // convert voltage to EC with temperature compensation
+  Serial.print("raw:");
+  Serial.print(ads.readADC_SingleEnded(EC_PIN));
+  Serial.print("\t");
+  Serial.print(", EC:");
+  Serial.print(ecValue,2);
+  Serial.println("μs/cm");
+  return voltageEC;
+
+  // String message = "{\"ec\": " + StriXng(ecValue) + "}";
+  // client.publish("v1/devices/me/telemetry", message.c_str());
 }
 
-void connectMQTT(String deviceId, String accessToken) {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if ( client.connect(deviceId.c_str(), accessToken.c_str(), NULL) ) {
-      Serial.println("connected");
-      // Once connected, publish an announcement...
-      client.publish("outTopic", "hello world");
-      // ... and resubscribe
-      client.subscribe("inTopic");
+// int i = 0;
+// bool readSerial(char result[]) {
+//     while(Serial.available() > 0){
+//         char inChar = Serial.read();
+//         if(inChar == '\n'){
+//              result[i] = '\0';
+//              Serial.flush();
+//              i=0;
+//              return true;
+//         }
+//         if(inChar != '\r'){
+//              result[i] = inChar;
+//              i++;
+//         }
+//         delay(1);
+//     }
+//     return false;
+// }
+
+float calcSlope() {
+  float ph4Reading = readMem(PH4_READING_MEM_ADDR).toFloat();
+  float ph7Reading = readMem(PH7_READING_MEM_ADDR).toFloat();
+  float value = (4.0 - 7.0) / (ph4Reading - ph7Reading);
+  Serial.print("Slope value: ");
+  Serial.println(value);
+  return value;
+}
+
+float calcIntercept() {
+  float ph4Reading = readMem(PH4_READING_MEM_ADDR).toFloat();
+  float ph7Reading = readMem(PH7_READING_MEM_ADDR).toFloat();
+  float slope = calcSlope();
+  float value = abs( (slope * ph7Reading) - 7);
+  Serial.print("Intercept value: ");
+  Serial.println(value);
+  return value;
+}
+
+void loadDeviceEndpoints() {
+  // device setup endpoints:
+  server.on(DEVICE_URLS.API.DEVICE.STATUS, HTTP_GET, [&](AsyncWebServerRequest *request){
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject &root = jsonBuffer.createObject();
+    root["ssid"] = WiFi.SSID();
+    root.printTo(*response);
+    request->send(response);
+  });
+  server.on(DEVICE_URLS.API.DEVICE.PH_CALIBRATE, HTTP_GET, [&](AsyncWebServerRequest *request){
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject &root = jsonBuffer.createObject();
+    root["value"] = readPhSensor();
+    root.printTo(*response);
+    request->send(response);
+  });
+  server.on(DEVICE_URLS.API.DEVICE.PH_CALIBRATE, HTTP_POST, [&](AsyncWebServerRequest *request){
+    if(request->hasParam("ph4Reading", true) && request->hasParam("ph7Reading", true)) {
+      const String ph4Reading = request->getParam("ph4Reading", true)->value().c_str();
+      const String ph7Reading = request->getParam("ph7Reading", true)->value().c_str();
+      writeMem(PH4_READING_MEM_ADDR, ph4Reading);
+      writeMem(PH7_READING_MEM_ADDR, ph7Reading);
+      request->send(200);
+      ESP.reset();
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+      request->send(400);
     }
-  }
-}
-
-float calcSlope(float ph4Reading, float ph7Reading) {
-  return (4.0 - 7.0) / (ph4Reading - ph7Reading);
-}
-
-float calcIntercept(float slope, float ph7Reading, float phReference) {
-  return abs( (slope * ph7Reading) - phReference );
-}
-
-void writeMem(char add,String data){
-  int _size = data.length();
-  int i;
-  for(i=0; i < _size; i++)
-    EEPROM.write(add+i,data[i]);
-
-  EEPROM.write(add+_size,'\0');   //Add termination null character for String Data
-  EEPROM.commit();
-}
-
-String readMem(char add){
-  char data[100]; //Max 100 Bytes
-  int len = 0;
-  unsigned char k;
-  k = EEPROM.read(add);
-  while(k != '\0' && len < 500)   //Read until null character
-  {
-    k = EEPROM.read(add+len);
-    data[len] = k;
-    len++;
-  }
-  data[len] = '\0';
-  return String(data);
+  });
 }
