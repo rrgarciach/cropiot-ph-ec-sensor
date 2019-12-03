@@ -56,18 +56,21 @@ void setup() {
   DEVICE_TYPE = "ph_ec_sensor";
   Serial.begin(115200);
   Serial.println("Starting...");
+
   connectWiFi();
   wlanClient1 = generateWiFiClient();
   connectMQTT(mqttClient1);
+  loadDeviceEndpoints();
+
   ec.begin();
   ads.begin();
   slope = calcSlope();
   intercept = calcIntercept();
+
   Serial.println("Ready");
 }
 
 void loop() {
-  loadDeviceEndpoints();
   reconnectWiFi();
   reconnectMQTT(mqttClient1);
   readPhSensor();

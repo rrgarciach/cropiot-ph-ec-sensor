@@ -11,13 +11,16 @@
 #include "EEPROM.h"
 
 #define DEVICE_NAME_MEM_ADDR      500 // size of 20
-#define MQTT_SERVER_MEM_ADDR    520 // size of 50
-#define MQTT_KEY_MEM_ADDR       640 // size of 20
+#define DEVICE_PASS_MEM_ADDR      520 // size of 20
+#define MQTT_SERVER_MEM_ADDR    540 // size of 50
+#define MQTT_KEY_MEM_ADDR       690 // size of 20
 String DEVICE_TYPE = "";
 
 IPAddress apLocalIP(192,168,4,1);
 IPAddress apGateway(192,168,4,0);
 IPAddress apSubnet(255,255,255,0);
+
+boolean shouldReboot = false;
 
 AsyncWebServer server(80);
 
@@ -38,9 +41,13 @@ PubSubClient generateMqttClient(WiFiClient wlanClient) {
 
 void startAP() {
   String apName = readMem(DEVICE_NAME_MEM_ADDR);
+  String apPass = readMem(DEVICE_PASS_MEM_ADDR);
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAPConfig(apLocalIP, apGateway, apSubnet);
-  WiFi.softAP(apName);
+  if (apPass == "")
+    WiFi.softAP(apName);
+  else
+    WiFi.softAP(apName, apPass);
   if(!SPIFFS.begin()){
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
@@ -51,10 +58,14 @@ void startAP() {
 
 void connectWiFi() {
   EEPROM.begin(512);
+  Serial.print("Device Name: \"");Serial.print(readMem(DEVICE_NAME_MEM_ADDR));Serial.println("\"");
+  Serial.print("Device Password: \"");Serial.print(readMem(DEVICE_PASS_MEM_ADDR));Serial.println("\"");
+  Serial.print("MQTT server: \"");Serial.print(readMem(MQTT_SERVER_MEM_ADDR));Serial.println("\"");
+  Serial.print("MQTT Key: \"");Serial.print(readMem(MQTT_KEY_MEM_ADDR));Serial.println("\"");
   loadSettingsEndpoints();
   // WiFi.begin(wlanSsid, wlanPass);
   startAP();
-  while (!WiFi.isConnected()) {
+  while (!WiFi.isConnected() && !shouldReboot) {
     delay(1000);
     Serial.println("Connecting to WiFi..");
   }
@@ -65,6 +76,11 @@ void connectWiFi() {
 }
 
 void reconnectWiFi() {
+  if(shouldReboot){
+    Serial.println("Rebooting...");
+    delay(100);
+    ESP.restart();
+  }
   if (!WiFi.isConnected()) {
     delay(1000);
     Serial.println("Reconnecting to WiFi..");
@@ -89,7 +105,7 @@ void connectMQTT(PubSubClient& mqttClient) {
 
   mqttClient.setServer(mqttServer.c_str(), 1883);
 
-  while (!mqttClient.connected()) {
+  while (!mqttClient.connected() && !shouldReboot) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
     if ( mqttClient.connect(deviceName.c_str(), mqttKey.c_str(), NULL) ) {
@@ -179,11 +195,14 @@ void loadSettingsEndpoints() {
     request->send(response);
   });
   server.on(URLS.API.DEVICE, HTTP_POST, [&](AsyncWebServerRequest *request){
-    if(request->hasParam("deviceName", true)) {
+    if(request->hasParam("deviceName", true) && request->hasParam("devicePass", true)) {
       const String deviceName = request->getParam("deviceName", true)->value().c_str();
+      const String devicePass = request->getParam("devicePass", true)->value().c_str();
       writeMem(DEVICE_NAME_MEM_ADDR, deviceName);
+      writeMem(DEVICE_PASS_MEM_ADDR, devicePass);
+      AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "OK");
       request->send(200);
-      ESP.restart();
+      shouldReboot = true;
     } else {
       request->send(400);
     }
@@ -210,11 +229,16 @@ void loadSettingsEndpoints() {
       WiFi.setAutoReconnect(true);
       WiFi.begin(wlanSsid, wlanPass);
       request->send(201);
-      ESP.restart();
+      shouldReboot = true;
     } else {
       request->send(400);
     }
   });
+  // server.on(URLS.API.WIFI.WPS, HTTP_POST, [&](AsyncWebServerRequest *request){
+  //   Serial.print("Beginning WPS (press WPS button on your router) ... ");
+  //   Serial.println(WiFi.beginWPSConfig() ? "Success" : "Failed");
+  //   request->send(200);
+  // });
   server.on(URLS.API.WIFI.DISCONNECT, HTTP_POST, [](AsyncWebServerRequest *request){
     WiFi.setAutoConnect(false);
     WiFi.setAutoReconnect(false);
@@ -271,8 +295,7 @@ void loadSettingsEndpoints() {
       writeMem(MQTT_SERVER_MEM_ADDR, mqttHost);
       writeMem(MQTT_KEY_MEM_ADDR, mqttToken);
       request->send(201);
-      ESP.restart();
-
+      shouldReboot = true;
     } else {
       request->send(400);
     }

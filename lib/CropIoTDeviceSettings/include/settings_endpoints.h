@@ -5,10 +5,11 @@
 struct {
   const char* FAVICON = "/favicon.ico";
   struct {
-    const char* DEVICE = "/api/device";
+    const char* DEVICE = "/api/settings/device";
     struct  {
       const char* STATUS = "/api/settings/wifi/status";
       const char* CONNECT = "/api/settings/wifi/connect";
+      // const char* WPS = "/api/settings/wifi/wps";
       const char* DISCONNECT = "/api/settings/wifi/disconnect";
       const char* SCAN = "/api/settings/wifi/scan";
     } WIFI;
