@@ -5,15 +5,12 @@
 #include "include/settings_endpoints.h"
 #include "ESP8266WiFi.h"
 #include "ESPAsyncWebServer.h"
-#include "ESPAsyncTCP.h"
-#include "AsyncJson.h"
 #include "ArduinoJson.h"
+#include "AsyncJson.h"
 #include "PubSubClient.h"
 #include "EEPROM.h"
 
 #define DEVICE_NAME_MEM_ADDR      500 // size of 20
-// #define WLAN_SSID_MEM_ADDR        520 // size of 20
-// #define WLAN_PASS_MEM_ADDR        540 // size of 20
 #define MQTT_SERVER_MEM_ADDR    520 // size of 50
 #define MQTT_KEY_MEM_ADDR       640 // size of 20
 String DEVICE_TYPE = "";
@@ -40,12 +37,10 @@ PubSubClient generateMqttClient(WiFiClient wlanClient) {
 }
 
 void startAP() {
-  // if (!WiFi.isConnected()) {
-    String apName = readMem(DEVICE_NAME_MEM_ADDR);
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAPConfig(apLocalIP, apGateway, apSubnet);
-    WiFi.softAP(apName);
-  // }
+  String apName = readMem(DEVICE_NAME_MEM_ADDR);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAPConfig(apLocalIP, apGateway, apSubnet);
+  WiFi.softAP(apName);
   if(!SPIFFS.begin()){
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
@@ -168,26 +163,9 @@ String readMem(char add){
 
 void loadSettingsEndpoints() {
   // statics endpoints:
+  server.serveStatic("/", SPIFFS, "/");
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index.html", "text/html");
-  });
-  server.on(URLS.FAVICON, HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, URLS.FAVICON, "image/x-icon");
-  });
-  server.on(URLS.STATICS.IMAGES.LOGO_PNG, HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, URLS.STATICS.IMAGES.LOGO_PNG, "image/png");
-  });
-  server.on(URLS.STATICS.SRC.JQUERY_MIN_JS, HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, URLS.STATICS.SRC.JQUERY_MIN_JS, "text/javascript");
-  });
-  server.on(URLS.STATICS.SRC.BOOTSTRAP_MIN_JS, HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, URLS.STATICS.SRC.BOOTSTRAP_MIN_JS, "text/javascript");
-  });
-  server.on(URLS.STATICS.SRC.BOOTSTRAP_MIN_CSS, HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, URLS.STATICS.SRC.BOOTSTRAP_MIN_CSS, "text/css");
-  });
-  server.on(URLS.STATICS.SRC.INDEX_JS, HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, URLS.STATICS.SRC.INDEX_JS, "text/javascript");
   });
 
   server.on(URLS.API.DEVICE, HTTP_GET, [&](AsyncWebServerRequest *request){
@@ -200,6 +178,16 @@ void loadSettingsEndpoints() {
     root.printTo(*response);
     request->send(response);
   });
+  server.on(URLS.API.DEVICE, HTTP_POST, [&](AsyncWebServerRequest *request){
+    if(request->hasParam("deviceName", true)) {
+      const String deviceName = request->getParam("deviceName", true)->value().c_str();
+      writeMem(DEVICE_NAME_MEM_ADDR, deviceName);
+      request->send(200);
+      ESP.restart();
+    } else {
+      request->send(400);
+    }
+  });
 
   // WiFi setup endpoints:
   server.on(URLS.API.WIFI.STATUS, HTTP_GET, [&](AsyncWebServerRequest *request){
@@ -209,18 +197,6 @@ void loadSettingsEndpoints() {
     root["ssid"] = WiFi.SSID();
     root.printTo(*response);
     request->send(response);
-  });
-  server.on(URLS.API.WIFI.SSID, HTTP_POST, [&](AsyncWebServerRequest *request){
-    String wlanSsid;
-    if(request->hasParam("ssid", true)) {
-      AsyncWebParameter* ssid = request->getParam("ssid", true);
-      wlanSsid = ssid->value().c_str();
-      writeMem(DEVICE_NAME_MEM_ADDR, wlanSsid);
-      request->send(200);
-      ESP.reset();
-    } else {
-      request->send(400);
-    }
   });
   server.on(URLS.API.WIFI.CONNECT, HTTP_POST, [&](AsyncWebServerRequest *request){
     String wlanSsid;
@@ -234,7 +210,7 @@ void loadSettingsEndpoints() {
       WiFi.setAutoReconnect(true);
       WiFi.begin(wlanSsid, wlanPass);
       request->send(201);
-      ESP.reset();
+      ESP.restart();
     } else {
       request->send(400);
     }
@@ -295,11 +271,15 @@ void loadSettingsEndpoints() {
       writeMem(MQTT_SERVER_MEM_ADDR, mqttHost);
       writeMem(MQTT_KEY_MEM_ADDR, mqttToken);
       request->send(201);
-      ESP.reset();
+      ESP.restart();
 
     } else {
       request->send(400);
     }
+  });
+
+  server.onNotFound([](AsyncWebServerRequest *request){
+    request->send(404);
   });
 }
 
