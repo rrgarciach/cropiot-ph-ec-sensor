@@ -5,6 +5,7 @@
 #include "include/settings_endpoints.h"
 #include "ESP8266WiFi.h"
 #include "ESPAsyncWebServer.h"
+#include "ESPAsyncTCP.h"
 #include "AsyncJson.h"
 #include "ArduinoJson.h"
 #include "PubSubClient.h"
@@ -15,6 +16,7 @@
 // #define WLAN_PASS_MEM_ADDR        540 // size of 20
 #define MQTT_SERVER_MEM_ADDR    520 // size of 50
 #define MQTT_KEY_MEM_ADDR       640 // size of 20
+String DEVICE_TYPE = "";
 
 IPAddress apLocalIP(192,168,4,1);
 IPAddress apGateway(192,168,4,0);
@@ -37,10 +39,26 @@ PubSubClient generateMqttClient(WiFiClient wlanClient) {
   return mqttClient;
 }
 
+void startAP() {
+  // if (!WiFi.isConnected()) {
+    String apName = readMem(DEVICE_NAME_MEM_ADDR);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAPConfig(apLocalIP, apGateway, apSubnet);
+    WiFi.softAP(apName);
+  // }
+  if(!SPIFFS.begin()){
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }
+  WiFi.begin();
+  server.begin();
+}
+
 void connectWiFi() {
   EEPROM.begin(512);
   loadSettingsEndpoints();
   // WiFi.begin(wlanSsid, wlanPass);
+  startAP();
   while (!WiFi.isConnected()) {
     delay(1000);
     Serial.println("Connecting to WiFi..");
@@ -170,6 +188,17 @@ void loadSettingsEndpoints() {
   });
   server.on(URLS.STATICS.SRC.INDEX_JS, HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, URLS.STATICS.SRC.INDEX_JS, "text/javascript");
+  });
+
+  server.on(URLS.API.DEVICE, HTTP_GET, [&](AsyncWebServerRequest *request){
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject &root = jsonBuffer.createObject();
+    String deviceName = readMem(DEVICE_NAME_MEM_ADDR);
+    root["deviceName"] = deviceName.c_str();
+    root["type"] = DEVICE_TYPE;
+    root.printTo(*response);
+    request->send(response);
   });
 
   // WiFi setup endpoints:

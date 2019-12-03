@@ -5,6 +5,7 @@
 struct {
   const char* FAVICON = "/favicon.ico";
   struct {
+    const char* DEVICE = "/api/device";
     struct  {
       const char* SSID = "/api/settings/wifi/ssid";
       const char* STATUS = "/api/settings/wifi/status";
