@@ -6,8 +6,6 @@
 #include "DFRobot_EC.h"
 // #include "DFRobot_PH.h"
 
-// https://github.com/knolleary/pubsubclient/blob/master/examples/mqtt_esp8266/mqtt_esp8266.ino
-
 // PH module Po   -> A0 ADS1115
 // PH sensor GND  -> Nodemcu GND
 // PH sensor V+   -> Nodemcu VU
