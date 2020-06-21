@@ -68,9 +68,6 @@ void setup() {
   Serial.println("Starting...");
 
   connectWiFi();
-  // wlanClient1 = generateWiFiClient();
-  writeMem(MQTT_SERVER_MEM_ADDR, "demo.thingsboard.io");
-  writeMem(MQTT_KEY_MEM_ADDR, "KjrfColRMYhfI9PYQTSX");
   connectMQTT();
   loadDeviceEndpoints();
   ads.begin();
