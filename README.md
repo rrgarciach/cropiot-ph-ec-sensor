@@ -30,6 +30,24 @@ void setup() {
   wlanClient1 = generateWiFiClient();
   connectMQTT(mqttClient1);
 ```
+- Add any required device custom endpoints as `/include/device_endpoints.h`
+(and include them using `#include "../include/device_endpoints.h"`) with content similar as follows:
+```
+#ifndef DEVICE_ENDPOINTS_H_
+#define DEVICE_ENDPOINTS_H_
+
+// Device setup endpoints
+struct {
+  struct {
+    struct  {
+      const char* PH_CALIBRATE = "/api/device/ph/calibrate";
+      const char* TDS_CALIBRATE = "/api/device/tds/calibrate";
+    } DEVICE;
+  } API;
+} DEVICE_URLS;
+
+#endif
+```
 
 ### Dependencies
 
@@ -38,5 +56,14 @@ void setup() {
 ### Additional hints
 To upload static files from `/data` directory simply run:
 `pio run -t uploadfs`
+
+Update libraries:
+`pio lib update`
+
+Upload code through OTA
+`pio run --target upload --upload-port IP_ADDRESS`
+
+Remote serial
+`pio remote run -t upload --upload-port IP_ADDRESS`
 
 ### Additional documentation
